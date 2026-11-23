@@ -1,0 +1,296 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Better Auth Tables ──────────────────────────────────────────────
+
+model User {
+  id            String    @id
+  name          String
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  image         String?
+  role          String    @default("customer") // customer | vendor | admin
+  // Better Auth admin plugin
+  banned        Boolean?  @default(false)
+  banReason     String?
+  banExpires    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  sessions      Session[]
+  accounts      Account[]
+  vendorProfile VendorProfile?
+  bookings      Booking[]
+  reviews       Review[]
+  vendorEvents  VendorStatusEvent[] // review decisions this user made (admins) or triggered (vendors)
+
+  @@map("user")
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  // Better Auth admin plugin: set while an admin is acting as this user
+  impersonatedBy String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@map("account")
+}
+
+model Verification {
+  id         String    @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime? @default(now())
+  updatedAt  DateTime? @updatedAt
+
+  @@map("verification")
+}
+
+// ─── Business Tables ─────────────────────────────────────────────────
+
+model ServiceCategory {
+  id          String    @id @default(cuid())
+  name        String    @unique
+  slug        String    @unique
+  description String?
+  icon        String? // lucide icon name
+  image       String? // cloudinary URL
+  isActive    Boolean   @default(true)
+  sortOrder   Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  services Service[]
+
+  @@map("service_category")
+}
+
+model City {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  slug      String   @unique
+  state     String
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  vendorProfiles VendorProfile[]
+  bookings       Booking[]
+
+  @@map("city")
+}
+
+// Lifecycle of a vendor application. Only APPROVED vendors are publicly listed.
+//   DRAFT ──submit──▶ SUBMITTED ──approve──▶ APPROVED ⇄ SUSPENDED
+//     ▲                 │  │
+//     └─ CHANGES_REQUESTED ◀┘  └──reject──▶ REJECTED ──reopen──▶ CHANGES_REQUESTED
+enum VendorStatus {
+  DRAFT
+  SUBMITTED
+  CHANGES_REQUESTED
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+model VendorProfile {
+  id              String       @id @default(cuid())
+  userId          String       @unique
+  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status          VendorStatus @default(DRAFT)
+  businessName    String
+  slug            String       @unique
+  contactName     String?
+  description     String?
+  phone           String?
+  whatsapp        String?
+  address         String?
+  cityId          String
+  city            City         @relation(fields: [cityId], references: [id])
+  pincode         String?
+  gstNumber       String?
+  yearsInBusiness Int?
+  instagram       String?
+  website         String?
+  portfolio       String[]     // image URLs
+  isVerified      Boolean      @default(false) // "Verified" badge; set on approval
+  isActive        Boolean      @default(true)  // vendor or admin can pause a live listing
+  profileImage    String?
+  coverImage      String?
+  rating          Float        @default(0)
+  totalReviews    Int          @default(0)
+  totalBookings   Int          @default(0)
+  termsAcceptedAt DateTime?
+  submittedAt     DateTime?
+  reviewedAt      DateTime?
+  approvedAt      DateTime?
+  reviewNote      String?      // latest admin note shown to the vendor
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  services     Service[]
+  bookingItems BookingItem[]
+  reviews      Review[]
+  events       VendorStatusEvent[]
+
+  @@index([cityId])
+  @@index([status, isActive])
+  @@index([status, submittedAt])
+  @@map("vendor_profile")
+}
+
+// Append-only audit trail of every status change
+model VendorStatusEvent {
+  id         String        @id @default(cuid())
+  vendorId   String
+  vendor     VendorProfile @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  fromStatus VendorStatus?
+  toStatus   VendorStatus
+  note       String?
+  actorId    String?
+  actor      User?         @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  createdAt  DateTime      @default(now())
+
+  @@index([vendorId, createdAt])
+  @@map("vendor_status_event")
+}
+
+enum PriceType {
+  FIXED
+  STARTING_FROM
+  PER_HOUR
+  PER_DAY
+}
+
+model Service {
+  id          String          @id @default(cuid())
+  vendorId    String
+  vendor      VendorProfile   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  categoryId  String
+  category    ServiceCategory @relation(fields: [categoryId], references: [id])
+  title       String
+  description String?
+  priceType   PriceType       @default(FIXED)
+  price       Float
+  priceUnit   String? // "per event", "per hour", "per day"
+  images      String[] // cloudinary URLs
+  isActive    Boolean         @default(true)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  bookingItems BookingItem[]
+
+  @@index([vendorId])
+  @@index([categoryId])
+  @@index([isActive])
+  @@map("service")
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+model Booking {
+  id          String        @id @default(cuid())
+  customerId  String
+  customer    User          @relation(fields: [customerId], references: [id])
+  eventDate   DateTime
+  eventType   String
+  guestCount  Int?
+  venue       String?
+  cityId      String
+  city        City          @relation(fields: [cityId], references: [id])
+  notes       String?
+  status      BookingStatus @default(PENDING)
+  totalAmount Float         @default(0)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  items BookingItem[]
+
+  @@index([customerId])
+  @@index([status])
+  @@index([eventDate])
+  @@map("booking")
+}
+
+enum BookingItemStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  COMPLETED
+}
+
+model BookingItem {
+  id        String            @id @default(cuid())
+  bookingId String
+  booking   Booking           @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  vendorId  String
+  vendor    VendorProfile     @relation(fields: [vendorId], references: [id])
+  serviceId String
+  service   Service           @relation(fields: [serviceId], references: [id])
+  price     Float
+  status    BookingItemStatus @default(PENDING)
+  notes     String?
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+
+  @@index([bookingId])
+  @@index([vendorId])
+  @@map("booking_item")
+}
+
+model Review {
+  id         String        @id @default(cuid())
+  customerId String
+  customer   User          @relation(fields: [customerId], references: [id])
+  vendorId   String
+  vendor     VendorProfile @relation(fields: [vendorId], references: [id])
+  bookingId  String?
+  rating     Int // 1-5
+  comment    String?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  @@index([vendorId])
+  @@index([customerId])
+  @@map("review")
+}
