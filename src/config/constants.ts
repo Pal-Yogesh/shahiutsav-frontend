@@ -1,5 +1,5 @@
 export const APP_NAME = process.env.NEXT_PUBLIC_APP_NAME ?? "ShahiUtsav";
-export const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+export const APP_URL = process.env.NEXT_APP_URL ?? "http://localhost:3000";
 
 export const PAGINATION = {
   DEFAULT_PAGE: 1,
