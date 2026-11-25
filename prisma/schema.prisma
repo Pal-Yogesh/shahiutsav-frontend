@@ -29,6 +29,9 @@ model User {
   bookings      Booking[]
   reviews       Review[]
   vendorEvents  VendorStatusEvent[] // review decisions this user made (admins) or triggered (vendors)
+  vendorActivities VendorActivity[]
+  reviewedChanges  VendorChangeRequest[]
+  bookingEvents    BookingEvent[]
 
   @@map("user")
 }
@@ -162,15 +165,59 @@ model VendorProfile {
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
 
-  services     Service[]
-  bookingItems BookingItem[]
-  reviews      Review[]
-  events       VendorStatusEvent[]
+  services       Service[]
+  bookingItems   BookingItem[]
+  reviews        Review[]
+  events         VendorStatusEvent[]
+  activities     VendorActivity[]
+  changeRequests VendorChangeRequest[]
 
   @@index([cityId])
   @@index([status, isActive])
   @@index([status, submittedAt])
   @@map("vendor_profile")
+}
+
+// Identity fields (business name, city, GSTIN) on a live listing change only after review
+enum ChangeRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+model VendorChangeRequest {
+  id         String              @id @default(cuid())
+  vendorId   String
+  vendor     VendorProfile       @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  changes    Json                // requested values, e.g. { "businessName": "New name" }
+  previous   Json                // values at the time of the request
+  status     ChangeRequestStatus @default(PENDING)
+  note       String?             // admin's note to the vendor
+  reviewerId String?
+  reviewer   User?               @relation(fields: [reviewerId], references: [id], onDelete: SetNull)
+  createdAt  DateTime            @default(now())
+  reviewedAt DateTime?
+
+  @@index([status, createdAt])
+  @@index([vendorId, status])
+  @@map("vendor_change_request")
+}
+
+// Everything a vendor or admin changed on a listing, for both sides to see
+model VendorActivity {
+  id        String        @id @default(cuid())
+  vendorId  String
+  vendor    VendorProfile @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  actorId   String?
+  actor     User?         @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  type      String        // e.g. SERVICE_ADDED, PRICE_CHANGED, PROFILE_UPDATED
+  summary   String        // human-readable, shown as-is
+  details   Json?
+  createdAt DateTime      @default(now())
+
+  @@index([vendorId, createdAt])
+  @@map("vendor_activity")
 }
 
 // Append-only audit trail of every status change
@@ -196,8 +243,20 @@ enum PriceType {
   PER_DAY
 }
 
+// A service in a category the vendor isn't yet approved for waits for review.
+// Services submitted with the original application go LIVE when it is approved.
+enum ServiceStatus {
+  PENDING
+  LIVE
+  REJECTED
+}
+
 model Service {
   id          String          @id @default(cuid())
+  status      ServiceStatus   @default(PENDING)
+  reviewNote  String?         // why a new category was not approved
+  submittedAt DateTime        @default(now())
+  archivedAt  DateTime?       // removed by the vendor; kept for past bookings
   vendorId    String
   vendor      VendorProfile   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   categoryId  String
@@ -208,7 +267,7 @@ model Service {
   price       Float
   priceUnit   String? // "per event", "per hour", "per day"
   images      String[] // cloudinary URLs
-  isActive    Boolean         @default(true)
+  isActive    Boolean         @default(true) // vendor can pause a service
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
 
@@ -216,7 +275,7 @@ model Service {
 
   @@index([vendorId])
   @@index([categoryId])
-  @@index([isActive])
+  @@index([status, submittedAt])
   @@map("service")
 }
 
@@ -238,24 +297,31 @@ model Booking {
   venue       String?
   cityId      String
   city        City          @relation(fields: [cityId], references: [id])
-  notes       String?
-  status      BookingStatus @default(PENDING)
-  totalAmount Float         @default(0)
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  notes        String?
+  contactPhone String?       // shared with a vendor only after they accept
+  status       BookingStatus @default(PENDING) // derived from the items, see booking-rules.ts
+  totalAmount  Float         @default(0)       // sum of items that are not declined or cancelled
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
 
-  items BookingItem[]
+  items  BookingItem[]
+  events BookingEvent[]
 
-  @@index([customerId])
+  @@index([customerId, eventDate])
   @@index([status])
   @@index([eventDate])
   @@map("booking")
 }
 
+// One vendor's part of a booking. Each vendor answers independently.
+//   PENDING → ACCEPTED → COMPLETED (after the event)
+//   PENDING → REJECTED (vendor declines) | CANCELLED (customer withdraws)
+//   ACCEPTED → CANCELLED (either side, before the event)
 enum BookingItemStatus {
   PENDING
   ACCEPTED
   REJECTED
+  CANCELLED
   COMPLETED
 }
 
@@ -267,15 +333,39 @@ model BookingItem {
   vendor    VendorProfile     @relation(fields: [vendorId], references: [id])
   serviceId String
   service   Service           @relation(fields: [serviceId], references: [id])
-  price     Float
-  status    BookingItemStatus @default(PENDING)
-  notes     String?
-  createdAt DateTime          @default(now())
-  updatedAt DateTime          @updatedAt
+  price         Float             // agreed price; the vendor may confirm a different amount on accepting
+  listedPrice   Float?            // the service's price when the request was made
+  status        BookingItemStatus @default(PENDING)
+  notes         String?           // customer's note to this vendor
+  vendorNote    String?           // vendor's note when accepting
+  declineReason String?
+  cancelReason  String?
+  cancelledBy   String?           // "customer" | "vendor"
+  respondedAt   DateTime?
+  cancelledAt   DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
 
   @@index([bookingId])
-  @@index([vendorId])
+  @@index([vendorId, status])
   @@map("booking_item")
+}
+
+// Timeline shown to both the customer and the vendor
+model BookingEvent {
+  id        String   @id @default(cuid())
+  bookingId String
+  booking   Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  itemId    String?
+  actorId   String?
+  actor     User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  type      String   // REQUESTED, ACCEPTED, DECLINED, CANCELLED, COMPLETED, REVIEWED
+  message   String
+  createdAt DateTime @default(now())
+
+  @@index([bookingId, createdAt])
+  @@map("booking_event")
 }
 
 model Review {
@@ -290,7 +380,8 @@ model Review {
   createdAt  DateTime      @default(now())
   updatedAt  DateTime      @updatedAt
 
-  @@index([vendorId])
-  @@index([customerId])
+  // One review per vendor per event (enforced in booking.service.ts reviewItem)
+  @@index([customerId, vendorId, bookingId])
+  @@index([vendorId, createdAt])
   @@map("review")
 }

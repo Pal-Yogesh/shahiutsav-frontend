@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { m, useReducedMotion } from "framer-motion";
 import { ArrowRight, BadgeCheck, CalendarCheck, ClipboardList, IndianRupee, Loader2, MapPin, ShieldCheck, Store, Users } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
@@ -35,7 +36,14 @@ export function OnboardingExperience({ categories, cities }: { categories: Categ
 
   const onChange = useCallback((app: VendorApplicationDTO) => setLoad({ state: "ready", app }), []);
 
-  if (isPending) return <Shell><Loading /></Shell>;
+  // Approved partners manage everything from their dashboard
+  const router = useRouter();
+  const live = load.state === "ready" && (load.app?.status === "APPROVED" || load.app?.status === "SUSPENDED");
+  useEffect(() => {
+    if (live) router.replace("/vendor/dashboard");
+  }, [live, router]);
+
+  if (isPending || live) return <Shell><Loading /></Shell>;
   if (!session) return <PartnerIntro />;
 
   const app = load.state === "ready" ? load.app : null;

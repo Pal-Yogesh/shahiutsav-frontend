@@ -7,7 +7,7 @@ import { ArrowLeft, AtSign, ExternalLink, Globe, Loader2, Mail, MapPin, Phone } 
 import { Button } from "@/components/ui/button";
 import { clientApi } from "@/lib/client-api";
 import { cn } from "@/lib/utils";
-import { ACTION_META, PRICE_TYPES, STATUS_META, formatDate, formatINR } from "@/config/vendor";
+import { ACTION_META, PRICE_TYPES, SERVICE_STATUS_META, STATUS_META, formatDate, formatINR, timeAgo } from "@/config/vendor";
 import type { AdminAction, AdminVendorDetail } from "@/types";
 
 type Load = { state: "loading" } | { state: "error"; message: string } | { state: "ready"; app: AdminVendorDetail };
@@ -94,7 +94,14 @@ function Detail({ app, onUpdated }: { app: AdminVendorDetail; onUpdated: (a: Adm
               {app.services.map((s) => (
                 <li key={s.id} className="flex flex-col gap-1 py-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
                   <div className="min-w-0">
-                    <p className="font-medium text-charcoal">{s.title}</p>
+                    <p className="flex flex-wrap items-center gap-2 font-medium text-charcoal">
+                      {s.title}
+                      {app.status !== "DRAFT" && app.status !== "SUBMITTED" && app.status !== "CHANGES_REQUESTED" && (
+                        <span className={cn("border px-1.5 py-px text-[0.65rem] font-normal", s.status === "LIVE" && !s.isActive ? "border-charcoal/20 text-charcoal/70" : SERVICE_STATUS_META[s.status].tone)}>
+                          {s.status === "LIVE" && !s.isActive ? "Paused" : SERVICE_STATUS_META[s.status].label}
+                        </span>
+                      )}
+                    </p>
                     <p className="text-xs text-gold-deep">{s.category.name}</p>
                     {s.description && <p className="mt-1.5 text-sm leading-relaxed text-muted-grey">{s.description}</p>}
                   </div>
@@ -142,6 +149,28 @@ function Detail({ app, onUpdated }: { app: AdminVendorDetail; onUpdated: (a: Adm
       {/* Decision + history */}
       <aside className="space-y-6 lg:sticky lg:top-28 lg:self-start">
         <DecisionPanel app={app} onUpdated={onUpdated} />
+
+        {(app.changeRequests.length > 0 || app.services.some((s) => s.status === "PENDING" && app.status === "APPROVED")) && (
+          <Link href="/admin/updates" className="block border border-gold/50 bg-gold/10 p-4 text-sm text-gold-deep hover:bg-gold/15">
+            This vendor has listing updates waiting for review →
+          </Link>
+        )}
+
+        {app.activities.length > 0 && (
+          <section className="border border-champagne bg-white p-6">
+            <h2 className="eyebrow text-[0.6rem] text-gold-deep">Listing activity</h2>
+            <ul className="mt-4 space-y-3">
+              {app.activities.slice(0, 12).map((a) => (
+                <li key={a.id} className="text-sm">
+                  <p className="text-charcoal/85">{a.summary}</p>
+                  <p className="text-xs text-muted-grey">
+                    {timeAgo(a.createdAt)} · {a.actor?.role === "admin" ? a.actor.name : "vendor"}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         <section className="border border-champagne bg-white p-6">
           <h2 className="eyebrow text-[0.6rem] text-gold-deep">History</h2>

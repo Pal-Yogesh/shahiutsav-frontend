@@ -58,7 +58,7 @@ export function UserMenu({ tone = "dark" }: { tone?: "light" | "dark" }) {
         <DropdownMenuSeparator />
         <DropdownMenuItem render={<Link href="/dashboard" />}>
           <LayoutDashboard className="mr-2 size-4" />
-          Dashboard
+          My bookings
         </DropdownMenuItem>
         {user.role === "admin" && (
           <DropdownMenuItem render={<Link href="/admin/vendors" />}>
@@ -66,7 +66,7 @@ export function UserMenu({ tone = "dark" }: { tone?: "light" | "dark" }) {
             Admin
           </DropdownMenuItem>
         )}
-        <DropdownMenuItem render={<Link href="/vendor/onboarding" />}>
+        <DropdownMenuItem render={<Link href={user.role === "vendor" ? "/vendor/dashboard" : "/vendor/onboarding"} />}>
           <Store className="mr-2 size-4" />
           {user.role === "customer" ? "Become a vendor" : "My business"}
         </DropdownMenuItem>
