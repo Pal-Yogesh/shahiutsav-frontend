@@ -90,7 +90,7 @@ export function Footer() {
       <div className="shell relative pt-20 pb-10">
         <div className="grid gap-14 lg:grid-cols-[1.3fr_2fr]">
           <div className="max-w-sm">
-            <Logo tone="light" />
+            <Logo variant="mark" tone="light" />
             <p className="mt-6 text-sm leading-relaxed text-champagne/70">
               One platform to discover, compare and book DJs, decorators, photographers, caterers and event
               equipment across India.
@@ -136,7 +136,7 @@ export function Footer() {
       </div>
 
       {/* Oversized wordmark, shown in full */}
-      <div aria-hidden className="relative py-6">
+      <div aria-hidden className="relative py-1">
         <p className="shell select-none whitespace-nowrap text-center font-serif text-[17vw] leading-[1.1] tracking-[-0.02em] text-champagne/[0.08] lg:text-[14rem]">
           Shahi<em className="text-gold/20">Utsav</em>
         </p>

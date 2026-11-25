@@ -41,8 +41,9 @@ export function Header() {
           : "border-b border-champagne/70 bg-ivory/90 py-1 backdrop-blur-xl"
       )}
     >
-      <div className="shell flex h-16 items-center justify-between gap-6">
-        <Logo tone={overHero ? "light" : "dark"} />
+      {/* Taller over the hero so the full logo reads well; compacts on scroll */}
+      <div className={cn("shell flex items-center justify-between gap-6 transition-[height] duration-500", overHero ? "h-20" : "h-16")}>
+        <Logo variant="full" tone={overHero ? "light" : "dark"} size={overHero ? "lg" : "md"} priority />
 
         <nav className="hidden items-center gap-8 lg:flex" aria-label="Main">
           {NAV_LINKS.map((link) => (
