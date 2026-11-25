@@ -2,7 +2,9 @@
 
 import type { ApiResponse } from "@/types";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+// Browser calls stay on this site's own domain: next.config.ts proxies /api/* to the backend.
+// That keeps the session cookie first-party, so browsers that block third-party cookies still work.
+const API_URL = "";
 
 export type ClientResult<T> =
   | { ok: true; data: T; meta?: ApiResponse["meta"] }
